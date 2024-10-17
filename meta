@@ -117,11 +117,18 @@ def output_metadata_as_table(metadata_list: List[Dict[str, Any]]):
     def c() -> int:
         """Provides an simple counter"""
         nonlocal c_
-        c_ += 1
         while True:
-            yield c_
             c_ += 1
+            yield c_
     ci = iter(c())
+
+    def pretty(obj: Any, path=False, time=False) -> str:
+        """format helper"""
+        if path:
+            return crop_str(str(obj), PATH_CELL_WIDTH, leftcrop=True)
+        if time:
+            return crop_str(obj.strftime("%Y-%m-%d, %H:%M:%S"), DEFAULT_CELL_WIDTH)
+        return crop_str(str(obj), DEFAULT_CELL_WIDTH)
 
     # Set table column headers
     headers = ['Extension']
@@ -139,44 +146,38 @@ def output_metadata_as_table(metadata_list: List[Dict[str, Any]]):
 
 
     # Find the maximum length of each column to align the table
-    col_widths = [len(header) for header in headers]
+    col_w = [len(header) for header in headers]
     for metadata in metadata_list:
         c_ = -1  # reset counter
-        col_widths[c_] = min(max(col_widths[next(ci)], len(metadata['extension']) + 2),
-                            DEFAULT_CELL_WIDTH + 2)
+        # use state value 'c_' of counter directly to duplicate yield
+        col_w[c_] = max(col_w[next(ci)], len(pretty(metadata['extension'])) + 2)
         if PARSE_MIME:
-            col_widths[c_] = min(max(col_widths[next(ci)], len(metadata['file_mime']) + 2),
-                                DEFAULT_CELL_WIDTH + 2)
-        col_widths[c_] = min(max(col_widths[next(ci)], len(metadata['file_path']) + 2),
-                            PATH_CELL_WIDTH + 2)
-        col_widths[c_] = min(max(col_widths[next(ci)], len(str(metadata['size'])) + 2),
-                            DEFAULT_CELL_WIDTH + 2)
+            col_w[c_] = max(col_w[next(ci)], len(pretty(metadata['file_mime'])) + 2)
+        col_w[c_] = max(col_w[next(ci)], len(pretty(metadata['file_path'], path=True)) + 2)
+        col_w[c_] = max(col_w[next(ci)], len(pretty(metadata['size'])) + 2)
         if SHOW_TIME:
-            col_widths[c_] = min(max(col_widths[next(ci)], len(str(metadata['atime'])) + 2),
-                                DEFAULT_CELL_WIDTH + 2)
-            col_widths[c_] = min(max(col_widths[next(ci)], len(str(metadata['mtime'])) + 2),
-                                DEFAULT_CELL_WIDTH + 2)
-            col_widths[c_] = min(max(col_widths[next(ci)], len(str(metadata['ctime'])) + 2),
-                                DEFAULT_CELL_WIDTH + 2)
+            col_w[c_] = max(col_w[next(ci)], len(pretty(metadata['atime'], time=True)) + 2)
+            col_w[c_] = max(col_w[next(ci)], len(pretty(metadata['mtime'], time=True)) + 2)
+            col_w[c_] = max(col_w[next(ci)], len(pretty(metadata['ctime'], time=True)) + 2)
 
 
     # Define a format string based on the calculated column widths
     c_ = -1  # reset counter
-    row_format      = f"| {{:^{col_widths[next(ci)]}}} "  # extension
+    row_format      = f"| {{:^{col_w[next(ci)]}}} "  # extension
     if PARSE_MIME:
-        row_format += f"| {{:^{col_widths[next(ci)]}}} "  # file_mime
+        row_format += f"| {{:^{col_w[next(ci)]}}} "  # file_mime
     #                          file_path and size
-    row_format     += f"| {{:<{col_widths[next(ci)]}}} " \
-                   +  f"| {{:>{col_widths[next(ci)]}}} "
+    row_format     += f"| {{:<{col_w[next(ci)]}}} " \
+                   +  f"| {{:>{col_w[next(ci)]}}} "
     if SHOW_TIME:
         #                      atime, mtime and ctime
-        row_format += f"| {{:^{col_widths[next(ci)]}}} " \
-                   +  f"| {{:^{col_widths[next(ci)]}}} " \
-                   +  f"| {{:^{col_widths[next(ci)]}}} "
+        row_format += f"| {{:^{col_w[next(ci)]}}} " \
+                   +  f"| {{:^{col_w[next(ci)]}}} " \
+                   +  f"| {{:^{col_w[next(ci)]}}} "
     row_format     += "|"                                 # end of row
 
     # Define seperator line
-    sep_line = "-" * (sum(col_widths) + 3*len(headers) + 1)
+    sep_line = "-" * (sum(col_w) + 3*len(headers) + 1)
 
     # print the table header
     sprint(sep_line + "\n" + row_format.format(*tuple(headers)) + "\n" + sep_line)
@@ -184,24 +185,19 @@ def output_metadata_as_table(metadata_list: List[Dict[str, Any]]):
     # print each file's metadata as a row in the table
     for metadata in metadata_list:
         values = []
-        values.append(crop_str(str(metadata["extension"]), DEFAULT_CELL_WIDTH))
+        values.append(pretty(metadata["extension"]))
 
         if PARSE_MIME:
-            values.append(crop_str(str(metadata["file_mime"]), DEFAULT_CELL_WIDTH))
-
-        values.append(crop_str(str(metadata["file_path"]), PATH_CELL_WIDTH, leftcrop=True))
-        values.append(crop_str(str(metadata["size"]), DEFAULT_CELL_WIDTH))
-
+            values.append(pretty(metadata["file_mime"]))
+        values.extend([pretty(metadata["file_path"], path=True),
+                       pretty(metadata["size"])])
         if SHOW_TIME:
-            values.append(
-                crop_str(str(metadata["atime"].strftime("%Y-%m-%d, %H:%M:%S")), DEFAULT_CELL_WIDTH))
-            values.append(
-                crop_str(str(metadata["mtime"].strftime("%Y-%m-%d, %H:%M:%S")), DEFAULT_CELL_WIDTH))
-            values.append(
-                crop_str(str(metadata["ctime"].strftime("%Y-%m-%d, %H:%M:%S")), DEFAULT_CELL_WIDTH))
+            values.extend([pretty(metadata["atime"], time=True),
+                           pretty(metadata["mtime"], time=True),
+                           pretty(metadata["ctime"], time=True)])
 
         sprint(row_format.format(*tuple(values)))
-    sprint(sep_line)
+    sprint(sep_line)  # end of table
 
 def sprint(*argv) -> None:
     """Pipesave print function"""
