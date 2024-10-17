@@ -113,6 +113,16 @@ def crop_str(string: str, maxlen: int, leftcrop: bool = False) -> str:
 def output_metadata_as_table(metadata_list: List[Dict[str, Any]]):
     """Output the collected metadata as a formatted table."""
 
+    c_ = -1  # state for counter, first call to c() will yield 0
+    def c() -> int:
+        """Provides an simple counter"""
+        nonlocal c_
+        c_ += 1
+        while True:
+            yield c_
+            c_ += 1
+    ci = iter(c())
+
     # Set table column headers
     headers = ['Extension']
 
@@ -131,58 +141,45 @@ def output_metadata_as_table(metadata_list: List[Dict[str, Any]]):
     # Find the maximum length of each column to align the table
     col_widths = [len(header) for header in headers]
     for metadata in metadata_list:
-        i = 0
-        col_widths[i] = min(max(col_widths[i], len(metadata['extension']) + 2),
+        c_ = -1  # reset counter
+        col_widths[c_] = min(max(col_widths[next(ci)], len(metadata['extension']) + 2),
                             DEFAULT_CELL_WIDTH + 2)
         if PARSE_MIME:
-            i += 1
-            col_widths[i] = min(max(col_widths[i], len(metadata['file_mime']) + 2),
+            col_widths[c_] = min(max(col_widths[next(ci)], len(metadata['file_mime']) + 2),
                                 DEFAULT_CELL_WIDTH + 2)
-        i += 1
-        col_widths[i] = min(max(col_widths[i], len(metadata['file_path']) + 2),
+        col_widths[c_] = min(max(col_widths[next(ci)], len(metadata['file_path']) + 2),
                             PATH_CELL_WIDTH + 2)
-        i += 1
-        col_widths[i] = min(max(col_widths[i], len(str(metadata['size'])) + 2),
+        col_widths[c_] = min(max(col_widths[next(ci)], len(str(metadata['size'])) + 2),
                             DEFAULT_CELL_WIDTH + 2)
         if SHOW_TIME:
-            i += 1
-            col_widths[i] = min(max(col_widths[i], len(str(metadata['atime'])) + 2),
+            col_widths[c_] = min(max(col_widths[next(ci)], len(str(metadata['atime'])) + 2),
                                 DEFAULT_CELL_WIDTH + 2)
-            i += 1
-            col_widths[i] = min(max(col_widths[i], len(str(metadata['mtime'])) + 2),
+            col_widths[c_] = min(max(col_widths[next(ci)], len(str(metadata['mtime'])) + 2),
                                 DEFAULT_CELL_WIDTH + 2)
-            i += 1
-            col_widths[i] = min(max(col_widths[i], len(str(metadata['ctime'])) + 2),
+            col_widths[c_] = min(max(col_widths[next(ci)], len(str(metadata['ctime'])) + 2),
                                 DEFAULT_CELL_WIDTH + 2)
 
 
     # Define a format string based on the calculated column widths
-    i = 0
-    row_format = f"| {{:^{col_widths[i]}}} "  # extension
+    c_ = -1  # reset counter
+    row_format      = f"| {{:^{col_widths[next(ci)]}}} "  # extension
     if PARSE_MIME:
-        i += 1
-        row_format += f"| {{:^{col_widths[i]}}} "  # file_mime
-    i += 1
-    row_format += f"| {{:<{col_widths[i]}}} "  # file_path
-    i += 1
-    row_format += f"| {{:>{col_widths[i]}}} "  # size
+        row_format += f"| {{:^{col_widths[next(ci)]}}} "  # file_mime
+    #                          file_path and size
+    row_format     += f"| {{:<{col_widths[next(ci)]}}} " \
+                   +  f"| {{:>{col_widths[next(ci)]}}} "
     if SHOW_TIME:
-        i += 1
-        row_format += f"| {{:^{col_widths[i]}}} "  # atime
-        i += 1
-        row_format += f"| {{:^{col_widths[i]}}} "  # mtime
-        i += 1
-        row_format += f"| {{:^{col_widths[i]}}} "  # ctime
-    row_format += "|"  # end of row
-
+        #                      atime, mtime and ctime
+        row_format += f"| {{:^{col_widths[next(ci)]}}} " \
+                   +  f"| {{:^{col_widths[next(ci)]}}} " \
+                   +  f"| {{:^{col_widths[next(ci)]}}} "
+    row_format     += "|"                                 # end of row
 
     # Define seperator line
     sep_line = "-" * (sum(col_widths) + 3*len(headers) + 1)
 
     # print the table header
-    sprint(sep_line)
-    sprint(row_format.format(*tuple(headers)))
-    sprint(sep_line)
+    sprint(sep_line + "\n" + row_format.format(*tuple(headers)) + "\n" + sep_line)
 
     # print each file's metadata as a row in the table
     for metadata in metadata_list:
