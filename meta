@@ -1,0 +1,314 @@
+#!/usr/bin/env python3
+
+"""
+Recursively prints the metadata of all files in a given directory.
+Features:
+  - export found data as json
+  - optional (using external lib): extract mime types
+"""
+
+# Copyright (C) 2024 Olaf Pichler <foss@brolf.at>
+
+# Licensed under the EUPL, Version 1.2 only (the "Licence");
+# You may not use this work except in compliance with the Licence.
+# You may obtain a copy of the Licence at:
+#
+# https://joinup.ec.europa.eu/software/page/eupl
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the Licence is distributed on an "AS IS" basis,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, eitherexpress or implied.
+# See the Licence for the specific language governingpermissions and limitations
+# under the Licence.
+
+
+####################################################################################################
+# Imports from the standard library
+import os
+import sys
+import json
+import argparse
+import importlib
+from datetime import datetime as dt
+from typing import List, Dict, Any
+# Optional dependency 'filetype'
+#     Used to parse mime types by looking at magic numbers, etc.
+#     see https://pypi.org/project/filetype/
+if importlib.util.find_spec('filetype') is not None:
+    import filetype
+
+####################################################################################################
+#    SETTINGS
+DEFAULT_CELL_WIDTH = 20
+PATH_CELL_WIDTH    = 60
+####################################################################################################
+
+##################
+## GLOBAL STATE ##
+##################
+# DO NOT CHANGE !!
+##################
+VERSION    = "1.0"
+PARSE_MIME = False
+SHOW_TIME  = False
+##################
+
+def get_file_metadata(file_path: str) -> Dict[str, Any]:
+    """Get the metadata for a given file."""
+    file_stat = os.stat(file_path)
+    extension = os.path.splitext(file_path)[1][1:]
+
+    metadata: Dict[str, Any] = {}
+    metadata['file_name'] = os.path.basename(file_path)
+    metadata['file_path'] = file_path
+    metadata['file_path_abs'] = os.path.abspath(file_path)
+    if PARSE_MIME:
+        file_kind = filetype.guess(file_path)
+        if file_kind is None:
+            mime = ''
+        else:
+            mime = str(file_kind.mime)
+        metadata['file_mime'] = mime
+    metadata['extension'] = extension  # Filetype extension i.e. 'jpg'
+    metadata['size'] = file_stat.st_size  # File size in bytes
+    metadata['atime'] = dt.fromtimestamp(file_stat.st_atime)  # Last access time
+    metadata['mtime'] = dt.fromtimestamp(file_stat.st_mtime)  # Last modification time
+    metadata['ctime'] = dt.fromtimestamp(file_stat.st_ctime)  # Creation time
+
+    return metadata
+
+def read_directory_recursively(dir_path: str) -> List[Dict[str, Any]]:
+    """Recursively read all files and their metadata starting from dir_path."""
+    file_metadata_list = []
+
+    # Walk through the directory recursively
+    for root, _dirs, files in os.walk(dir_path):
+        for file_name in files:
+            file_path = os.path.join(root, file_name)
+            file_metadata = get_file_metadata(file_path)
+            file_metadata_list.append(file_metadata)
+
+    return file_metadata_list
+
+def crop_str(string: str, maxlen: int, leftcrop: bool = False) -> str:
+    """Reduce a given 'string' to a also given 'maxlen'.
+
+    if len(string) > maxlen:
+        The string will be cropped to to maxlen -1 and
+        a '…' will be added to indicate the truncation.
+
+    The crop direction can be reversed by using 'leftcrop=True'
+    """
+    s = string.strip()
+    if len(s) <= maxlen:
+        return s
+
+    if not leftcrop:
+        s = s[:maxlen-1] + '…'
+    else:
+        s = '…' + s[len(s)-maxlen-1:]
+    return s
+
+
+def output_metadata_as_table(metadata_list: List[Dict[str, Any]]):
+    """Output the collected metadata as a formatted table."""
+
+    # Set table column headers
+    headers = ['Extension']
+
+    if PARSE_MIME:
+        headers.append('Type')
+
+    headers.append('File Path')
+    headers.append('Size (Bytes)')
+
+    if SHOW_TIME:
+        headers.append('Access time')
+        headers.append('Modification time')
+        headers.append('Creation time')
+
+
+    # Find the maximum length of each column to align the table
+    col_widths = [len(header) for header in headers]
+    for metadata in metadata_list:
+        i = 0
+        col_widths[i] = min(max(col_widths[i], len(metadata['extension']) + 2),
+                            DEFAULT_CELL_WIDTH + 2)
+        if PARSE_MIME:
+            i += 1
+            col_widths[i] = min(max(col_widths[i], len(metadata['file_mime']) + 2),
+                                DEFAULT_CELL_WIDTH + 2)
+        i += 1
+        col_widths[i] = min(max(col_widths[i], len(metadata['file_path']) + 2),
+                            PATH_CELL_WIDTH + 2)
+        i += 1
+        col_widths[i] = min(max(col_widths[i], len(str(metadata['size'])) + 2),
+                            DEFAULT_CELL_WIDTH + 2)
+        if SHOW_TIME:
+            i += 1
+            col_widths[i] = min(max(col_widths[i], len(str(metadata['atime'])) + 2),
+                                DEFAULT_CELL_WIDTH + 2)
+            i += 1
+            col_widths[i] = min(max(col_widths[i], len(str(metadata['mtime'])) + 2),
+                                DEFAULT_CELL_WIDTH + 2)
+            i += 1
+            col_widths[i] = min(max(col_widths[i], len(str(metadata['ctime'])) + 2),
+                                DEFAULT_CELL_WIDTH + 2)
+
+
+    # Define a format string based on the calculated column widths
+    i = 0
+    row_format = f"| {{:^{col_widths[i]}}} "  # extension
+    if PARSE_MIME:
+        i += 1
+        row_format += f"| {{:^{col_widths[i]}}} "  # file_mime
+    i += 1
+    row_format += f"| {{:<{col_widths[i]}}} "  # file_path
+    i += 1
+    row_format += f"| {{:>{col_widths[i]}}} "  # size
+    if SHOW_TIME:
+        i += 1
+        row_format += f"| {{:^{col_widths[i]}}} "  # atime
+        i += 1
+        row_format += f"| {{:^{col_widths[i]}}} "  # mtime
+        i += 1
+        row_format += f"| {{:^{col_widths[i]}}} "  # ctime
+    row_format += "|"  # end of row
+
+
+    # Define seperator line
+    sep_line = "-" * (sum(col_widths) + 3*len(headers) + 1)
+
+    # print the table header
+    sprint(sep_line)
+    sprint(row_format.format(*tuple(headers)))
+    sprint(sep_line)
+
+    # print each file's metadata as a row in the table
+    for metadata in metadata_list:
+        values = []
+        values.append(crop_str(str(metadata["extension"]), DEFAULT_CELL_WIDTH))
+
+        if PARSE_MIME:
+            values.append(crop_str(str(metadata["file_mime"]), DEFAULT_CELL_WIDTH))
+
+        values.append(crop_str(str(metadata["file_path"]), PATH_CELL_WIDTH, leftcrop=True))
+        values.append(crop_str(str(metadata["size"]), DEFAULT_CELL_WIDTH))
+
+        if SHOW_TIME:
+            values.append(
+                crop_str(str(metadata["atime"].strftime("%Y-%m-%d, %H:%M:%S")), DEFAULT_CELL_WIDTH))
+            values.append(
+                crop_str(str(metadata["mtime"].strftime("%Y-%m-%d, %H:%M:%S")), DEFAULT_CELL_WIDTH))
+            values.append(
+                crop_str(str(metadata["ctime"].strftime("%Y-%m-%d, %H:%M:%S")), DEFAULT_CELL_WIDTH))
+
+        sprint(row_format.format(*tuple(values)))
+    sprint(sep_line)
+
+def sprint(*argv) -> None:
+    """Pipesave print function"""
+    try:
+        print(*argv)
+    except BrokenPipeError:
+        # Python flushes standard streams on exit; redirect remaining output
+        # to devnull to avoid another BrokenPipeError at shutdown
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, sys.stdout.fileno())
+        sys.exit(1)  # Python exits with error code 1 on EPIPE
+
+def save_metadata_to_json(metadata_list: List[Dict[str, Any]], output_file: str) -> None:
+    """Save the collected metadata to a JSON file."""
+
+    class DateTimeEncoder(json.JSONEncoder):
+        """Encoder class to serialize timestamps in ISO format"""
+        def default(self, o):
+            if isinstance(o, dt):
+                return o.isoformat()
+            return super().default(o)
+
+    out = json.dumps(metadata_list, indent=2, cls=DateTimeEncoder)
+
+    # Check if user wants the json on stdout
+    if output_file == '-':
+        sprint(out)
+    else:
+        with open(output_file, 'w', encoding="utf-8") as f:
+            f.write(out)
+
+def main() -> None:
+    """entry point"""
+    # Get first non empty line of doc string
+    desc = next(s for s in __doc__.splitlines() if s)
+    # Argument parser
+    parser = argparse.ArgumentParser(description=desc)
+    mx1 = parser.add_mutually_exclusive_group()
+    parser.add_argument("-d", "--directory", metavar="DIRECTORY",
+                        type=str, default="./",
+                        help="The directory to start reading from. (default: './' )")
+
+    parser.add_argument("-j", "--json", metavar="OUTPUT_FILE",
+                        help="Save data as JSON. (will always export atime, mtime and ctime)")
+
+    parser.add_argument("-v", "--version", action="store_true",
+                        help="Show version.")
+
+    if importlib.util.find_spec('filetype') is not None:
+        parser.add_argument("-m", "--mime", action="store_true",
+                            help="Check the files mime types (slow).")
+
+    mx1.add_argument("-q", "--quiet", action="store_true",
+                     help="Don't print output as text table.")
+
+    mx1.add_argument("-t", "--time", action="store_true",
+                     help="Also output atime, mtime and ctime.")
+
+    args = parser.parse_args()
+
+    if args.version:
+        print(f"{VERSION}")
+        return
+
+    # Get the directory to read from
+    directory = args.directory
+    if not os.path.isdir(directory):
+        sprint(f"Error: {directory} is not a valid directory.")
+        return
+
+    # Parse quiet flag
+    quiet = args.quiet
+    if quiet and not args.json:
+        # Nothing to do
+        return
+
+    # Parse mime flag
+    if importlib.util.find_spec('filetype') is not None:
+        global PARSE_MIME
+        PARSE_MIME = args.mime
+
+    # Parse display time flag
+    global SHOW_TIME
+    SHOW_TIME = args.time
+
+
+    # Recursively read metadata from the directory
+    file_metadata = read_directory_recursively(directory)
+
+    # Check if json output is requested
+    if args.json:
+        save_metadata_to_json(file_metadata, args.json)
+        if args.json == "-":
+            # disable other prints so the json output isn't contaminated
+            quiet = True
+        if not quiet:
+            sprint(f"Metadata saved to {args.json}")
+
+    # Check if quiet mode is active and print the table
+    if not quiet:
+        output_metadata_as_table(file_metadata)
+
+if __name__ == "__main__":
+    main()
+
+# modeline; see https://vimdoc.sourceforge.net/htmldoc/options.html#modeline
+# vim: tabstop=4 shiftwidth=4 textwidth=100 expandtab=on
